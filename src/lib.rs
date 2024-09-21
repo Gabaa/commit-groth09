@@ -55,10 +55,6 @@ impl GrothCommitment {
         }
     }
 
-    pub fn check_public_parameters<const N: usize>(pp: &PublicParameters<N>) -> bool {
-        todo!()
-    }
-
     fn commit_with_randomness<const N: usize>(
         pp: &PublicParameters<N>,
         value: &Value<N>,
@@ -85,7 +81,7 @@ impl GrothCommitment {
         let g = G2Affine::generator();
         let r = gen_g2_elem(&mut rng, g);
         let s = gen_g2_elem(&mut rng, g);
-        let randomness = [r, s];
+        let randomness = Randomness { r, s };
 
         let commitment = Self::commit_with_randomness(pp, value, &randomness);
 
@@ -106,12 +102,6 @@ fn gen_g2_elem(rng: &mut impl RngCore, generator: G2Affine) -> G2Affine {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn accept_honest_parameters() {
-        let pp = GrothCommitment::generate_public_parameters::<10>();
-        assert!(GrothCommitment::check_public_parameters::<10>(&pp));
-    }
 
     #[test]
     fn it_works() {
