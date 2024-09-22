@@ -6,17 +6,39 @@
 use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
 use ff::Field;
 use rand::prelude::*;
+use std::iter::zip;
 
-pub struct GrothCommitment {}
+pub struct Values<const N: usize> {
+    values: [G2Affine; N],
+}
 
-type Value<const N: usize> = [G2Affine; N];
+impl<const N: usize> Values<N> {
+    pub fn new(values: [G2Affine; N]) -> Self {
+        Values { values }
+    }
+}
+
 pub struct Randomness {
     r: G2Affine,
     s: G2Affine,
 }
-type Commitment = [Gt; 2];
 
-pub struct PublicParameters<const N: usize> {
+impl Randomness {
+    pub fn gen(rng: &mut impl RngCore) -> Self {
+        let g = G2Affine::generator();
+        let r = gen_g2_elem(rng, g);
+        let s = gen_g2_elem(rng, g);
+        Randomness { r, s }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub struct Commitment {
+    c: Gt,
+    d: Gt,
+}
+
+pub struct CommitmentKey<const N: usize> {
     g_arr: [G1Affine; N],
     h_arr: [G1Affine; N],
     gr: G1Affine,
@@ -25,8 +47,8 @@ pub struct PublicParameters<const N: usize> {
     hs: G1Affine,
 }
 
-impl GrothCommitment {
-    pub fn generate_public_parameters<const N: usize>() -> PublicParameters<N> {
+impl<const N: usize> CommitmentKey<N> {
+    pub fn generate() -> CommitmentKey<N> {
         let mut rng = thread_rng();
         let g = G1Affine::generator();
 
@@ -45,7 +67,7 @@ impl GrothCommitment {
         let gs = gen_g1_elem(&mut rng, g);
         let hs = gen_g1_elem(&mut rng, g);
 
-        PublicParameters {
+        CommitmentKey {
             g_arr,
             h_arr,
             gr,
@@ -55,36 +77,23 @@ impl GrothCommitment {
         }
     }
 
-    fn commit_with_randomness<const N: usize>(
-        pp: &PublicParameters<N>,
-        value: &Value<N>,
-        randomness: &Randomness,
-    ) -> Commitment {
-        let mut c = pairing(&pp.gr, &randomness.r) + pairing(&pp.gs, &randomness.s);
-        for i in 0..N {
-            c += pairing(&pp.g_arr[i], &value[i])
+    pub fn commit_with_randomness(&self, value: &Values<N>, randomness: &Randomness) -> Commitment {
+        let mut c = pairing(&self.gr, &randomness.r) + pairing(&self.gs, &randomness.s);
+        for (g, v) in zip(&self.g_arr, &value.values) {
+            c += pairing(g, v)
         }
 
-        let mut d = pairing(&pp.hr, &randomness.r) + pairing(&pp.hs, &randomness.s);
-        for i in 0..N {
-            d += pairing(&pp.h_arr[i], &value[i])
+        let mut d = pairing(&self.hr, &randomness.r) + pairing(&self.hs, &randomness.s);
+        for (h, v) in zip(&self.h_arr, &value.values) {
+            d += pairing(h, v)
         }
 
-        [c, d]
+        Commitment { c, d }
     }
 
-    fn commit<const N: usize>(
-        pp: &PublicParameters<N>,
-        value: &Value<N>,
-    ) -> (Commitment, Randomness) {
-        let mut rng = thread_rng();
-        let g = G2Affine::generator();
-        let r = gen_g2_elem(&mut rng, g);
-        let s = gen_g2_elem(&mut rng, g);
-        let randomness = Randomness { r, s };
-
-        let commitment = Self::commit_with_randomness(pp, value, &randomness);
-
+    pub fn commit(&self, value: &Values<N>) -> (Commitment, Randomness) {
+        let randomness = Randomness::gen(&mut thread_rng());
+        let commitment = Self::commit_with_randomness(self, value, &randomness);
         (commitment, randomness)
     }
 }
@@ -105,10 +114,10 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let pp = GrothCommitment::generate_public_parameters::<10>();
-        let value = [G2Affine::generator(); 10];
-        let (c, r) = GrothCommitment::commit(&pp, &value);
-        let d = GrothCommitment::commit_with_randomness(&pp, &value, &r);
+        let ck = CommitmentKey::generate();
+        let value = Values::new([G2Affine::generator(); 10]);
+        let (c, r) = ck.commit(&value);
+        let d = ck.commit_with_randomness(&value, &r);
         assert_eq!(c, d);
     }
 }
