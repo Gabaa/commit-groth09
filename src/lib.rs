@@ -3,10 +3,12 @@
 //!
 //! This implementation uses [BLS12-381](https://docs.rs/bls12_381) for the groups and pairing.
 
-use bls12_381::{pairing, G1Affine, G2Affine, Gt, Scalar};
+use bls12_381::{pairing, G1Affine, G2Affine, G2Projective, Gt, Scalar};
 use ff::Field;
+use group::Group;
 use rand::prelude::*;
 use std::iter::zip;
+use std::ops::{Add, Mul};
 
 pub struct Values<const N: usize> {
     values: [G2Affine; N],
@@ -15,6 +17,39 @@ pub struct Values<const N: usize> {
 impl<const N: usize> Values<N> {
     pub fn new(values: [G2Affine; N]) -> Self {
         Values { values }
+    }
+
+    pub(crate) fn random() -> Self {
+        let mut values = Vec::with_capacity(N);
+        for _ in 0..N {
+            values.push(G2Affine::from(G2Projective::random(thread_rng())));
+        }
+        Values {
+            values: values.try_into().unwrap(),
+        }
+    }
+
+    pub fn from_bytes(_bytes: &[u8]) -> Self {
+        todo!("implement converting to and from bytes")
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        todo!("implement converting to and from bytes")
+    }
+}
+
+impl<const N: usize> Mul for &Values<N> {
+    type Output = Values<N>;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let mut values = Vec::with_capacity(N);
+        for i in 0..N {
+            let v = G2Affine::from(self.values[i] + &rhs.values[i].into());
+            values.push(v);
+        }
+        Values {
+            values: values.try_into().unwrap(),
+        }
     }
 }
 
@@ -32,10 +67,30 @@ impl Randomness {
     }
 }
 
+impl Mul for &Randomness {
+    type Output = Randomness;
+
+    fn mul(self, rhs: Self) -> Self::Output {
+        let r = self.r.add(&G2Projective::from(rhs.r)).into();
+        let s = self.s.add(&G2Projective::from(rhs.s)).into();
+        Randomness { r, s }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub struct Commitment {
     c: Gt,
     d: Gt,
+}
+
+impl Mul for &Commitment {
+    type Output = Commitment;
+
+    fn mul(self, rhs: &Commitment) -> Self::Output {
+        let c = self.c.add(rhs.c);
+        let d = self.d.add(rhs.d);
+        Commitment { c, d }
+    }
 }
 
 pub struct CommitmentKey<const N: usize> {
@@ -114,10 +169,29 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let ck = CommitmentKey::generate();
-        let value = Values::new([G2Affine::generator(); 10]);
+        let ck = CommitmentKey::<10>::generate();
+        let value = Values::random();
         let (c, r) = ck.commit(&value);
         let d = ck.commit_with_randomness(&value, &r);
         assert_eq!(c, d);
+    }
+
+    #[test]
+    fn multiplicatively_homomorphic() {
+        let ck = CommitmentKey::<1>::generate();
+
+        let v1 = Values::random();
+        let (c1, r1) = ck.commit(&v1);
+
+        let v2 = Values::random();
+        let (c2, r2) = ck.commit(&v2);
+
+        let v_mul = &v1 * &v2;
+        let r_mul = &r1 * &r2;
+        let expected = ck.commit_with_randomness(&v_mul, &r_mul);
+
+        let actual = c1.mul(&c2);
+
+        assert_eq!(actual, expected);
     }
 }
