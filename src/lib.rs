@@ -5,7 +5,6 @@
 
 use bls12_381::{pairing, G1Affine, G2Affine, G2Projective, Gt, Scalar};
 use ff::Field;
-use group::Group;
 use rand::prelude::*;
 use std::iter::zip;
 use std::ops::{Add, Mul};
@@ -19,7 +18,10 @@ impl<const N: usize> Values<N> {
         Values { values }
     }
 
+    #[cfg(test)]
     pub(crate) fn random() -> Self {
+        use group::Group;
+
         let mut values = Vec::with_capacity(N);
         for _ in 0..N {
             values.push(G2Affine::from(G2Projective::random(thread_rng())));
@@ -38,13 +40,14 @@ impl<const N: usize> Values<N> {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl<const N: usize> Mul for &Values<N> {
     type Output = Values<N>;
 
     fn mul(self, rhs: Self) -> Self::Output {
         let mut values = Vec::with_capacity(N);
         for i in 0..N {
-            let v = G2Affine::from(self.values[i] + &rhs.values[i].into());
+            let v = G2Affine::from(self.values[i] + G2Projective::from(rhs.values[i]));
             values.push(v);
         }
         Values {
